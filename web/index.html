@@ -172,11 +172,11 @@
         }
       };
 
-      // ---- args encoding (mirrors web_utils.encode_to_str) ----------------
-      const encodeArgs = (input_norm, postprocess) => {
-        const json = JSON.stringify({ input_norm, postprocess });
-        return btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-      };
+      // ---- args encoding (urlsafe base64, mirrors web_utils.encode_to_str) -
+      // The full model meta is embedded in the layer source so a shared URL is
+      // self-contained (remote ONNX + remote data travel; local files can't).
+      const encodeMeta = (meta) =>
+        btoa(JSON.stringify(meta)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
       const isSegmentation = (post) =>
         post.some((p) => ["ThresholdPostprocessor", "LabelPostprocessor", "MortonSegmentationRelabeling"].includes(p.name));
@@ -235,9 +235,8 @@
           await putModel(name, meta);
           log(`[model] registered "${name}"`);
 
-          // Build Neuroglancer state.
-          const args = encodeArgs(input_norm, postprocess);
-          const segment = `${encodeURIComponent(name)}${ARGS_KEY}${args}${ARGS_KEY}`;
+          // Build Neuroglancer state — full meta embedded so the URL is shareable.
+          const segment = `${encodeURIComponent(name)}${ARGS_KEY}${encodeMeta(meta)}${ARGS_KEY}`;
           const modelSource = `zarr://${location.origin}${BASE}/cf/${segment}`;
 
           const state = {
@@ -259,12 +258,47 @@
             ],
             layout: "4panel",
           };
-          $("ng").src = `${NG_BASE}#!${encodeURIComponent(JSON.stringify(state))}`;
+          openViewer("#!" + encodeURIComponent(JSON.stringify(state)));
           log("[ng] viewer state loaded");
         } catch (e) {
           log(`[err] ${e}`);
         }
       };
+
+      // ---- shareable URL: keep the top-level URL == Neuroglancer state -----
+      // Load Neuroglancer (in the iframe) at the given hash and reflect it onto
+      // the parent URL so the address bar is the full, shareable state.
+      function openViewer(hash) {
+        $("ng").src = `${NG_BASE}${hash}`;
+        history.replaceState(null, "", location.pathname + location.search + hash);
+      }
+
+      // As the user navigates/edits in Neuroglancer, it rewrites its own hash;
+      // mirror that up to the parent URL (same-origin iframe, so we can read it).
+      let syncTimer = 0;
+      $("ng").addEventListener("load", () => {
+        try {
+          const win = $("ng").contentWindow;
+          const mirror = () => {
+            const h = win.location.hash;
+            if (h && h !== location.hash) {
+              history.replaceState(null, "", location.pathname + location.search + h);
+            }
+          };
+          win.addEventListener("hashchange", mirror);
+          // Neuroglancer also mutates the hash without firing hashchange; poll too.
+          clearInterval(syncTimer);
+          syncTimer = setInterval(mirror, 1000);
+        } catch (e) {
+          log(`[sync] ${e}`);
+        }
+      });
+
+      // Boot from a shared link: if the page opened with a state hash, load it.
+      if (location.hash.startsWith("#!")) {
+        openViewer(location.hash);
+        log("[ng] restored state from URL");
+      }
     </script>
   </body>
 </html>

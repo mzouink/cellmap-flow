@@ -90,15 +90,6 @@ function parseModelSegment(segment) {
   return { name, args };
 }
 
-function effectiveMeta(meta, args) {
-  if (!args) return meta;
-  return {
-    ...meta,
-    input_norm: args.input_norm ?? meta.input_norm,
-    postprocess: args.postprocess ?? meta.postprocess,
-  };
-}
-
 async function handleChunk(meta, cz, cy, cx) {
   const { arr } = await getInputArray(meta.__name, meta);
   const roi = P.chunkInputRoi(meta, cz, cy, cx);
@@ -130,11 +121,18 @@ async function handleChunk(meta, cz, cy, cx) {
 // Returns { status?, contentType, body } where body is a JSON string or ArrayBuffer.
 export async function handleCf(segment, tail) {
   const { name, args } = parseModelSegment(segment);
-  const stored = await getModel(name);
-  if (!stored) {
-    return { status: 404, contentType: "text/plain", body: `unknown model ${name}` };
+  let meta;
+  if (args && args.input_size) {
+    // Self-contained meta embedded in the URL (shareable link).
+    meta = { ...args, __name: name };
+  } else {
+    // Legacy: geometry from IndexedDB, args may override norms/post.
+    const stored = await getModel(name);
+    if (!stored) {
+      return { status: 404, contentType: "text/plain", body: `unknown model ${name}` };
+    }
+    meta = { ...stored, ...(args || {}), __name: name };
   }
-  const meta = { ...effectiveMeta(stored, args), __name: name };
 
   if (tail === ".zattrs") {
     return { contentType: "application/json", body: JSON.stringify(P.buildZattrs(meta, name)) };
