@@ -69,6 +69,12 @@ function getSession(meta) {
           if (!src) throw new Error(`no stored ONNX bytes for ${meta.onnxKey}`);
         }
         const pref = meta.backend || "auto"; // "auto" | "webgpu" | "wasm"
+        // Forcing WebGPU is a debug mode: log op-by-op so the last op before a
+        // stall is visible (e.g. an unsupported Conv3d falling back).
+        if (pref === "webgpu") {
+          ort.env.logLevel = "verbose";
+          ort.env.debug = true;
+        }
         const status = (text) => self.postMessage({ type: "status", text });
         status(`initializing model session (${meta.onnxKey ? "local file" : "remote URL"}) [${pref}]…`);
         if (pref !== "wasm" && navigator.gpu) {
