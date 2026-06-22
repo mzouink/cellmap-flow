@@ -1,8 +1,9 @@
 name: Deploy serverless web to gh-pages-serveless
 
-# Publishes the static browser-side app in web/ (service worker + ONNX
-# inference) to the `gh-pages-serveless` branch. Configure GitHub Pages with
-# Source = "Deploy from a branch", Branch = gh-pages-serveless, folder = / (root).
+# Builds Neuroglancer (so it is served same-origin — the service worker can only
+# intercept chunk requests from clients it controls) and publishes web/ to the
+# `gh-pages-serveless` branch. Configure GitHub Pages with Source = "Deploy from
+# a branch", Branch = gh-pages-serveless, folder = / (root).
 on:
   push:
     branches: [serverless]
@@ -16,13 +17,36 @@ concurrency:
   group: gh-pages-serveless
   cancel-in-progress: true
 
+env:
+  NEUROGLANCER_REF: v2.41.2 # pinned upstream build
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          submodules: recursive # pulls vendor/neuroglancer if added as a submodule
+          node-version: "22"
+
+      - name: Build Neuroglancer
+        run: |
+          git clone --depth 1 --branch "${NEUROGLANCER_REF}" \
+            https://github.com/google/neuroglancer.git /tmp/neuroglancer
+          cd /tmp/neuroglancer
+          npm ci
+          npm run build
+          # Locate the built client (find index.html rather than assume dist/client).
+          out_index=$(find dist -name index.html | head -1)
+          if [ -z "$out_index" ]; then echo "neuroglancer build output not found" >&2; exit 1; fi
+          mkdir -p "${GITHUB_WORKSPACE}/web/vendor/neuroglancer"
+          cp -r "$(dirname "$out_index")"/. "${GITHUB_WORKSPACE}/web/vendor/neuroglancer/"
+          # Served from a subdirectory: make root-anchored asset paths relative
+          # (no-op if already relative; the negative class skips // protocol-relative URLs).
+          sed -i -E 's#(src|href)="/([^/])#\1="./\2#g' \
+            "${GITHUB_WORKSPACE}/web/vendor/neuroglancer/index.html"
+
       - name: Publish web/ to gh-pages-serveless
         run: |
           touch web/.nojekyll   # serve files verbatim (don't run Jekyll)
@@ -31,7 +55,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -q -m "Deploy web/ from ${GITHUB_SHA}"
+          git commit -q -m "Deploy web/ + neuroglancer from ${GITHUB_SHA}"
           git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             gh-pages-serveless:gh-pages-serveless
         env:
