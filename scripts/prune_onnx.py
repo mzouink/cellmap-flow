@@ -51,7 +51,11 @@ def slice_conv(conv, out_idx, in_idx):
 
 
 def prune_unet(backbone, final_conv, ratio, keep_channel=0):
-    """In-place structured channel prune of a funlib UNet + StandardUnet head."""
+    """In-place structured channel prune of a funlib UNet + StandardUnet head.
+
+    keep_channel: output channel to keep at the head, or None to keep ALL output
+    channels (used during distillation finetuning; slice to one channel at export).
+    """
     import torch
 
     head = 0
@@ -78,7 +82,8 @@ def prune_unet(backbone, final_conv, ratio, keep_channel=0):
             orig_out[id(c)] = c.out_channels
             out_keep[id(c)] = choose(c)
     orig_out[id(final_conv)] = final_conv.out_channels
-    out_keep[id(final_conv)] = [keep_channel]
+    final_keep = list(range(final_conv.out_channels)) if keep_channel is None else [keep_channel]
+    out_keep[id(final_conv)] = final_keep
 
     # Encoder: conv0 input from previous level's last conv (downsample is param-free);
     # level 0 input is the single image channel.
@@ -102,7 +107,7 @@ def prune_unet(backbone, final_conv, ratio, keep_channel=0):
         for ci, c in enumerate(cs):
             slice_conv(c, out_keep[id(c)], first_in if ci == 0 else out_keep[id(cs[ci - 1])])
 
-    slice_conv(final_conv, [keep_channel], out_keep[id(convs_of(rconv[0])[-1])])
+    slice_conv(final_conv, final_keep, out_keep[id(convs_of(rconv[0])[-1])])
 
 
 def main():
