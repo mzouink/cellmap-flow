@@ -113,12 +113,38 @@
       const BASE = location.pathname.replace(/[^/]*$/, "").replace(/\/$/, "");
       const NG_BASE = `${BASE}/vendor/neuroglancer/`; // bundled, same-origin (see README)
 
+      // ---- compute worker (runs zarr read + ONNX; SW can't, no dynamic import)
+      const compute = new Worker(`${BASE}/compute-worker.js`, { type: "module" });
+      const computePending = new Map();
+      let computeSeq = 0;
+      compute.onmessage = (e) => {
+        const cb = computePending.get(e.data.id);
+        if (cb) { computePending.delete(e.data.id); cb(e.data); }
+      };
+      compute.onerror = (e) => log(`[worker] ${e.message || e}`);
+
       // ---- service worker -------------------------------------------------
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker
           .register(`${BASE}/sw.js`, { type: "module" })
           .then((r) => log(`[sw] registered (scope ${r.scope})`))
           .catch((e) => log(`[sw] registration failed: ${e}`));
+
+        // Bridge: SW asks us to compute a /cf/ response; forward to the worker.
+        navigator.serviceWorker.addEventListener("message", (e) => {
+          if (e.data?.type !== "computeCf") return;
+          const port = e.ports[0];
+          const id = ++computeSeq;
+          computePending.set(id, (data) => {
+            const body = data.body;
+            const transfer = body instanceof ArrayBuffer ? [body] : [];
+            port.postMessage(
+              { ok: data.ok, status: data.status, contentType: data.contentType, body, error: data.error },
+              transfer
+            );
+          });
+          compute.postMessage({ id, segment: e.data.segment, tail: e.data.tail });
+        });
       } else {
         log("[sw] service workers unavailable in this browser");
       }

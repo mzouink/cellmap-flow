@@ -7,32 +7,7 @@
 //
 // zarrita is loaded from a CDN ESM build; pin the version in web/README.md.
 import * as zarr from "https://cdn.jsdelivr.net/npm/zarrita@0.4/+esm";
-
-// A zarrita Readable store backed by a File System Access directory handle,
-// so locally-picked Zarr directories can be read inside the service worker.
-export class FileSystemStore {
-  constructor(dirHandle) {
-    this.dir = dirHandle;
-  }
-  async get(key) {
-    const parts = key.replace(/^\//, "").split("/").filter(Boolean);
-    if (parts.length === 0) return undefined;
-    try {
-      let handle = this.dir;
-      for (let i = 0; i < parts.length - 1; i++) {
-        handle = await handle.getDirectoryHandle(parts[i]);
-      }
-      const fileHandle = await handle.getFileHandle(parts[parts.length - 1]);
-      const file = await fileHandle.getFile();
-      return new Uint8Array(await file.arrayBuffer());
-    } catch (e) {
-      if (e && (e.name === "NotFoundError" || e.name === "TypeMismatchError")) {
-        return undefined; // missing chunk -> zarrita treats as fill_value
-      }
-      throw e;
-    }
-  }
-}
+import { FileSystemStore } from "./local-store.js";
 
 // Open a Zarr array from a source descriptor:
 //   { type: "remote", url }            -> FetchStore

@@ -54,6 +54,34 @@ export const putHandle = (key, handle) =>
 export const getHandle = (key) =>
   tx("handles", "readonly", (os) => wrap(os.get(key)));
 
+// A zarrita Readable store backed by a File System Access directory handle, so
+// locally-picked Zarr directories can be read in a worker or the service worker.
+// Lives here (no zarrita dependency) so the SW can use it for /local passthrough
+// without pulling zarrita — whose codecs use dynamic import(), forbidden in SWs.
+export class FileSystemStore {
+  constructor(dirHandle) {
+    this.dir = dirHandle;
+  }
+  async get(key) {
+    const parts = key.replace(/^\//, "").split("/").filter(Boolean);
+    if (parts.length === 0) return undefined;
+    try {
+      let handle = this.dir;
+      for (let i = 0; i < parts.length - 1; i++) {
+        handle = await handle.getDirectoryHandle(parts[i]);
+      }
+      const fileHandle = await handle.getFileHandle(parts[parts.length - 1]);
+      const file = await fileHandle.getFile();
+      return new Uint8Array(await file.arrayBuffer());
+    } catch (e) {
+      if (e && (e.name === "NotFoundError" || e.name === "TypeMismatchError")) {
+        return undefined; // missing chunk -> zarrita treats as fill_value
+      }
+      throw e;
+    }
+  }
+}
+
 // Raw bytes (e.g. a local ONNX model) shared from the page to the SW.
 export const putBlob = (key, data) =>
   tx("blobs", "readwrite", (os) => wrap(os.put(data, key)));

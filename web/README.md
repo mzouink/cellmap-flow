@@ -13,21 +13,30 @@ This is the `serverless` branch counterpart to the Flask deployment.
 
 | File | Role |
 |---|---|
-| `index.html` | UI: register a model, pick a data source, open Neuroglancer |
-| `sw.js` | Service worker — fetch routing + ONNX inference (port of `server.py`) |
+| `index.html` | UI: register a model, pick a data source, open Neuroglancer; bridges SW↔worker |
+| `sw.js` | Service worker — intercepts requests, **delegates** `/cf/` compute to the worker |
+| `compute-worker.js` | Module Worker entry — runs the pipeline (dynamic import() works here) |
+| `compute.js` | The inference pipeline: model session, input read, normalize, infer, postprocess |
 | `pipeline.js` | Zarr metadata, ROI math, normalizers, postprocessors, encoding |
-| `zarr-reader.js` | Read an input ROI (clip + zero-pad); remote + local-FS stores |
-| `local-store.js` | IndexedDB: model registry + File System Access handles |
-| `vendor/neuroglancer/` | **Bundled** Neuroglancer build (you must add this) |
+| `zarr-reader.js` | Read an input ROI (clip + zero-pad) via zarrita |
+| `local-store.js` | IndexedDB (model registry, FS handles, ONNX blobs) + `FileSystemStore` |
+| `vendor/neuroglancer/` | **Bundled** Neuroglancer build (added by the CI workflow) |
 
 ## How it works
 
 The service worker intercepts **same-origin** requests and routes them:
 
-| Same-origin URL | Backend |
+| Same-origin URL | Handling |
 |---|---|
-| `…/cf/<model__CFLOW_ARGS__<b64>__CFLOW_ARGS__>/.zattrs` · `/s0/.zarray` · `/s0/z.y.x[.c]` | ONNX inference pipeline |
-| `…/local/<handleKey>/<path>` | Raw Zarr file from a locally-picked directory |
+| `…/cf/<model__CFLOW_ARGS__<b64>__CFLOW_ARGS__>/.zattrs` · `/s0/.zarray` · `/s0/z.y.x[.c]` | delegated to the compute Worker (zarr read + ONNX) |
+| `…/local/<handleKey>/<path>` | raw Zarr file from a locally-picked directory (read in the SW) |
+
+**Why a worker.** Service workers forbid dynamic `import()` (per spec), but
+zarrita lazily `import()`s its decompression codecs (and ORT may too). So the SW
+can't run inference directly — it delegates each `/cf/` request to a module
+Worker the page owns (`compute-worker.js`), which can dynamic-import freely and
+also keeps heavy compute off the main thread. Flow: NG iframe fetch → SW →
+postMessage to the app window → compute Worker → bytes back → SW response.
 
 Because the SW only sees same-origin traffic, **Neuroglancer must be served from
 this same origin** — hence the bundled `vendor/neuroglancer/`. Remote inputs

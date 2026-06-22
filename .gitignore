@@ -163,3 +163,9 @@ cython_debug/
 
 # Misc
 .vscode/
+
+# Serverless web: large model artifacts — never commit (too big for git).
+# Use the in-browser local-file picker, or host the .onnx on a CORS bucket/CDN.
+web/models/
+*.onnx
+*.onnx.data
