@@ -151,10 +151,6 @@ async function handleChunk(meta, cz, cy, cx) {
     release();
   }
   const ms = performance.now() - t0;
-  console.log(
-    `[compute] block ${cz}.${cy}.${cx} computed on ${provider === "webgpu" ? "GPU" : "CPU"} ` +
-      `(${provider}) in ${ms.toFixed(0)} ms`
-  );
   const outDims = Array.from(out.dims);
 
   let nd;
@@ -168,7 +164,7 @@ async function handleChunk(meta, cz, cy, cx) {
   if (meta.has_channel) zarrNd = P.reorderToZarr(nd); // [C,z,y,x] -> [z,y,x,c]
   else zarrNd = { data: nd.data, shape: nd.shape.slice(1) }; // squeeze channel
 
-  return P.encodeChunk(zarrNd, P.outputDtype(meta)); // ArrayBuffer
+  return { buf: P.encodeChunk(zarrNd, P.outputDtype(meta)), provider, ms };
 }
 
 // Returns { status?, contentType, body } where body is a JSON string or ArrayBuffer.
@@ -199,8 +195,8 @@ export async function handleCf(segment, tail) {
   }
   const m = tail.match(/^s0\/(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$/);
   if (m) {
-    const buf = await handleChunk(meta, +m[1], +m[2], +m[3]);
-    return { contentType: "application/octet-stream", body: buf };
+    const { buf, provider, ms } = await handleChunk(meta, +m[1], +m[2], +m[3]);
+    return { contentType: "application/octet-stream", body: buf, provider, ms };
   }
   return { status: 404, contentType: "text/plain", body: "not found" };
 }

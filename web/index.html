@@ -37,6 +37,12 @@
       }
       .hint { font-size: 11px; color: #6e7681; margin-top: 2px; }
       code { color: #79c0ff; }
+      #stats {
+        margin-top: 12px; padding: 8px 10px; background: #161b22; border: 1px solid #21262d;
+        border-radius: 6px; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 11px;
+      }
+      #stats span { color: #6e7681; }
+      #stats b { color: #c9d1d9; font-weight: 600; text-align: right; word-break: break-all; }
     </style>
   </head>
   <body>
@@ -96,6 +102,16 @@
       <div class="hint">v1 supports MinMax/Lambda/ZScore norms and Default/Threshold/ChannelSelection/Lambda post.</div>
 
       <button id="launch">Register &amp; open in Neuroglancer</button>
+
+      <h2>Compute</h2>
+      <div id="stats">
+        <span>Backend</span><b id="stBackend">—</b>
+        <span>Device</span><b id="stDevice">—</b>
+        <span>Blocks done</span><b id="stBlocks">0</b>
+        <span>In-flight</span><b id="stInflight">0</b>
+        <span>Last / avg</span><b id="stMs">—</b>
+        <span>Throughput</span><b id="stRate">—</b>
+      </div>
       <div id="log"></div>
     </aside>
     <main>
@@ -118,9 +134,46 @@
       const compute = new Worker(`${BASE}/compute-worker.js`, { type: "module" });
       const computePending = new Map();
       let computeSeq = 0;
+
+      // ---- live compute stats (HUD) ---------------------------------------
+      const stats = { blocks: 0, ms: [], times: [] };
+      const fmt = (id, v) => { $(id).textContent = v; };
+      function recordStat(d) {
+        if (d.provider) {
+          fmt("stBackend", d.provider === "webgpu" ? "WebGPU (GPU)" : "WASM (CPU)");
+          $("stBackend").style.color = d.provider === "webgpu" ? "#3fb950" : "#d29922";
+        }
+        if (typeof d.ms === "number") {
+          stats.blocks++;
+          stats.ms.push(d.ms);
+          if (stats.ms.length > 30) stats.ms.shift();
+          stats.times.push(performance.now());
+          if (stats.times.length > 200) stats.times.shift();
+        }
+      }
+      function updateHud() {
+        fmt("stBlocks", stats.blocks);
+        fmt("stInflight", computePending.size);
+        if (stats.ms.length) {
+          const last = stats.ms[stats.ms.length - 1];
+          const avg = stats.ms.reduce((a, b) => a + b, 0) / stats.ms.length;
+          fmt("stMs", `${last.toFixed(0)} / ${avg.toFixed(0)} ms`);
+          const recent = stats.times.filter((t) => t >= performance.now() - 3000);
+          fmt("stRate", `${(recent.length / 3).toFixed(1)} blk/s`);
+        }
+      }
+      setInterval(updateHud, 400);
+
       compute.onmessage = (e) => {
-        const cb = computePending.get(e.data.id);
-        if (cb) { computePending.delete(e.data.id); cb(e.data); }
+        const d = e.data;
+        if (d.type === "device") {
+          fmt("stDevice", d.info.gpu || `CPU ×${d.info.cores || "?"}`);
+          return;
+        }
+        recordStat(d);
+        const cb = computePending.get(d.id);
+        if (cb) { computePending.delete(d.id); cb(d); }
+        updateHud();
       };
       compute.onerror = (e) => log(`[worker] ${e.message || e}`);
 
