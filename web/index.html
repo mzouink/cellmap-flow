@@ -105,6 +105,7 @@
 
       <h2>Compute</h2>
       <div id="stats">
+        <span>Status</span><b id="stStatus">starting…</b>
         <span>Backend</span><b id="stBackend">—</b>
         <span>Device</span><b id="stDevice">—</b>
         <span>Blocks done</span><b id="stBlocks">0</b>
@@ -170,12 +171,20 @@
           fmt("stDevice", d.info.gpu || `CPU ×${d.info.cores || "?"}`);
           return;
         }
+        if (d.type === "status") {
+          fmt("stStatus", d.text);
+          log(`[compute] ${d.text}`);
+          return;
+        }
         recordStat(d);
         const cb = computePending.get(d.id);
         if (cb) { computePending.delete(d.id); cb(d); }
         updateHud();
       };
-      compute.onerror = (e) => log(`[worker] ${e.message || e}`);
+      compute.onerror = (e) => {
+        fmt("stStatus", `worker load error: ${e.message || e}`);
+        log(`[worker] ${e.message || e}`);
+      };
 
       // ---- service worker -------------------------------------------------
       if ("serviceWorker" in navigator) {

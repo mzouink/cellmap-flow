@@ -67,21 +67,24 @@ function getSession(meta) {
           src = await getBlob(meta.onnxKey);
           if (!src) throw new Error(`no stored ONNX bytes for ${meta.onnxKey}`);
         }
+        const status = (text) => self.postMessage({ type: "status", text });
+        status(`initializing model session (${meta.onnxKey ? "local file" : "remote URL"})…`);
         if (navigator.gpu) {
           try {
             const session = await ort.InferenceSession.create(src, {
               executionProviders: ["webgpu"],
             });
-            console.log("[compute] session initialized on WebGPU (GPU)");
+            status("session ready · WebGPU (GPU)");
             return { session, provider: "webgpu" };
           } catch (e) {
             console.warn("[compute] WebGPU init failed, falling back to WASM (CPU):", e.message);
+            status("WebGPU failed, retrying on WASM (CPU)…");
           }
         } else {
-          console.warn("[compute] navigator.gpu unavailable — using WASM (CPU)");
+          status("navigator.gpu unavailable — using WASM (CPU)");
         }
         const session = await ort.InferenceSession.create(src, { executionProviders: ["wasm"] });
-        console.log("[compute] session initialized on WASM (CPU)");
+        status("session ready · WASM (CPU)");
         return { session, provider: "wasm" };
       })()
     );

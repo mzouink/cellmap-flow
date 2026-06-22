@@ -8,6 +8,7 @@ import { handleCf } from "./compute.js";
 
 // Report device info once so the page can show which GPU/CPU is in use.
 (async () => {
+  self.postMessage({ type: "status", text: "compute worker loaded" });
   const info = { cores: navigator.hardwareConcurrency || null, gpu: null };
   if (navigator.gpu) {
     try {
@@ -38,6 +39,8 @@ self.onmessage = async (e) => {
       transfer
     );
   } catch (err) {
+    const msg = String((err && err.message) || err);
+    self.postMessage({ type: "status", text: "ERROR: " + msg });
     self.postMessage({ id, ok: false, error: String((err && err.stack) || err) });
   }
 };
