@@ -12,12 +12,15 @@
 //   tail "s0/.zarray"   -> array metadata JSON
 //   tail "s0/z.y.x[.c]" -> inference chunk (raw bytes)
 
-import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.webgpu.bundle.min.mjs";
+// Nightly build: testing whether the WebGPU EP runs Conv3D (the stable 1.27
+// operator matrix lists conv3d as unsupported). Pinned to a specific dev build.
+const ORT_VER = "1.27.0-dev.20260506-673c3320fc";
+import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0-dev.20260506-673c3320fc/dist/ort.webgpu.bundle.min.mjs";
 import { getModel, getHandle, getBlob } from "./local-store.js";
 import { openArray, readRoi } from "./zarr-reader.js";
 import * as P from "./pipeline.js";
 
-const ORT_DIST = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
+const ORT_DIST = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VER}/dist/`;
 ort.env.wasm.wasmPaths = ORT_DIST;
 // Flip on to debug op placement (WebGPU vs WASM fallback) in the worker console.
 // ort.env.logLevel = "verbose";
