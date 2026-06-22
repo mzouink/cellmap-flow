@@ -114,6 +114,7 @@
         <span>Status</span><b id="stStatus">starting…</b>
         <span>Backend</span><b id="stBackend">—</b>
         <span>Device</span><b id="stDevice">—</b>
+        <span>CPU threads</span><b id="stThreads">—</b>
         <span>Blocks done</span><b id="stBlocks">0</b>
         <span>In-flight</span><b id="stInflight">0</b>
         <span>Last / avg</span><b id="stMs">—</b>
@@ -178,6 +179,7 @@
         const d = e.data;
         if (d.type === "device") {
           fmt("stDevice", d.info.gpu || `CPU ×${d.info.cores || "?"}`);
+          fmt("stThreads", d.info.isolated ? `${d.info.threads} (isolated)` : "1 (not isolated)");
           return;
         }
         if (d.type === "status") {
@@ -198,6 +200,18 @@
         fmt("stStatus", `worker load error: ${e.message || e}`);
         log(`[worker] ${e.message || e}`);
       };
+
+      // Once the SW controls the page it injects COOP/COEP; reload once so the
+      // document actually becomes crossOriginIsolated (enables WASM threads).
+      if (
+        !self.crossOriginIsolated &&
+        navigator.serviceWorker &&
+        navigator.serviceWorker.controller &&
+        !sessionStorage.getItem("coiReloaded")
+      ) {
+        sessionStorage.setItem("coiReloaded", "1");
+        location.reload();
+      }
 
       // ---- service worker -------------------------------------------------
       if ("serviceWorker" in navigator) {

@@ -11,7 +11,13 @@ const { handleCf } = await import("./compute.js" + self.location.search);
 // Report device info once so the page can show which GPU/CPU is in use.
 (async () => {
   self.postMessage({ type: "status", text: "compute worker loaded" });
-  const info = { cores: navigator.hardwareConcurrency || null, gpu: null };
+  const isolated = self.crossOriginIsolated === true;
+  const info = {
+    cores: navigator.hardwareConcurrency || null,
+    gpu: null,
+    isolated,
+    threads: isolated && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 1,
+  };
   if (navigator.gpu) {
     try {
       const adapter = await navigator.gpu.requestAdapter();

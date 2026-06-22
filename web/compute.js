@@ -26,6 +26,11 @@ const P = await import("./pipeline.js" + _v);
 
 const ORT_DIST = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VER}/dist/`;
 ort.env.wasm.wasmPaths = ORT_DIST;
+// Use all cores for WASM (only takes effect when crossOriginIsolated, i.e. when
+// the SW has injected COOP/COEP and SharedArrayBuffer is available).
+if (typeof navigator !== "undefined" && navigator.hardwareConcurrency) {
+  ort.env.wasm.numThreads = navigator.hardwareConcurrency;
+}
 // Flip on to debug op placement (WebGPU vs WASM fallback) in the worker console.
 // ort.env.logLevel = "verbose";
 // ort.env.debug = true;

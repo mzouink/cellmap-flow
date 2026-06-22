@@ -75,14 +75,33 @@ async function route(url) {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return; // only same-origin
-  if (!url.pathname.includes("/cf/") && !url.pathname.includes("/local/")) return;
-  event.respondWith(
-    route(url)
-      .then((r) => r || fetch(event.request))
-      .catch((e) => {
-        console.error("[sw]", e);
-        return new Response(String(e), { status: 500 });
-      })
-  );
+  const sameOrigin = url.origin === self.location.origin;
+
+  // Our virtual endpoints (inference + local data).
+  if (sameOrigin && (url.pathname.includes("/cf/") || url.pathname.includes("/local/"))) {
+    event.respondWith(
+      route(url)
+        .then((r) => r || fetch(event.request))
+        .catch((e) => {
+          console.error("[sw]", e);
+          return new Response(String(e), { status: 500 });
+        })
+    );
+    return;
+  }
+
+  // Add COOP/COEP to navigations so the document becomes crossOriginIsolated,
+  // which enables SharedArrayBuffer → multithreaded WASM (huge CPU speedup).
+  // credentialless lets cross-origin resources (CDN, data) load without CORP.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      (async () => {
+        const resp = await fetch(event.request);
+        const headers = new Headers(resp.headers);
+        headers.set("Cross-Origin-Opener-Policy", "same-origin");
+        headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+        return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+      })()
+    );
+  }
 });
