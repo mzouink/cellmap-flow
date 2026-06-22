@@ -22,6 +22,29 @@ ort.env.wasm.wasmPaths = ORT_DIST;
 // Flip on to debug op placement (WebGPU vs WASM fallback) in the worker console.
 // ort.env.logLevel = "verbose";
 // ort.env.debug = true;
+console.log("[compute] WebGPU available:", typeof navigator !== "undefined" && !!navigator.gpu);
+
+// Limit concurrent inferences. Neuroglancer may request many chunks at once
+// (its "Concurrent chunk requests"), but each is a full volumetric forward pass;
+// running them all at once exhausts GPU/CPU memory. Gate to a small number.
+const MAX_CONCURRENT = 2;
+let inflight = 0;
+const waiters = [];
+function acquire() {
+  if (inflight < MAX_CONCURRENT) {
+    inflight++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waiters.push(resolve));
+}
+function release() {
+  inflight--;
+  const next = waiters.shift();
+  if (next) {
+    inflight++;
+    next();
+  }
+}
 
 const ARGS_KEY = "__CFLOW_ARGS__";
 
@@ -99,9 +122,17 @@ async function handleChunk(meta, cz, cy, cx) {
 
   const session = await getSession(meta);
   const dims = [1, 1, ...meta.input_size];
-  const feeds = { [session.inputNames[0]]: new ort.Tensor("float32", input.data, dims) };
-  const results = await session.run(feeds);
-  const out = results[session.outputNames[0]];
+
+  // Bound concurrent forward passes (see MAX_CONCURRENT above).
+  await acquire();
+  let out;
+  try {
+    const feeds = { [session.inputNames[0]]: new ort.Tensor("float32", input.data, dims) };
+    const results = await session.run(feeds);
+    out = results[session.outputNames[0]];
+  } finally {
+    release();
+  }
   const outDims = Array.from(out.dims);
 
   let nd;

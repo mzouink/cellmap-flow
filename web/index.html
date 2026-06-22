@@ -258,6 +258,9 @@
               },
             ],
             layout: "4panel",
+            // Each chunk is a full ONNX forward pass; don't let NG request 100 at
+            // once (the worker also caps concurrency). Keeps memory in check.
+            concurrentDownloads: 8,
           };
           openViewer("#!" + encodeURIComponent(JSON.stringify(state)));
           log("[ng] viewer state loaded");
