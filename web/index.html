@@ -257,7 +257,10 @@
                     }),
               },
             ],
-            layout: "4panel",
+            // Single cross-section by default: each block is a full ONNX forward
+            // pass, and "4panel" (3 sections + 3D volume) multiplies the blocks
+            // requested ~4x. Switch layouts in the NG UI if you want more views.
+            layout: "xy",
             // Each chunk is a full ONNX forward pass; don't let NG request 100 at
             // once (the worker also caps concurrency). Keeps memory in check.
             concurrentDownloads: 8,
