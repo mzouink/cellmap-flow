@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  pages: write # request a Pages rebuild via the API after pushing the branch
 
 concurrency:
   group: gh-pages-serveless
@@ -58,5 +59,17 @@ jobs:
           git commit -q -m "Deploy web/ + neuroglancer from ${GITHUB_SHA}"
           git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             gh-pages-serveless:gh-pages-serveless
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Request a GitHub Pages build
+        # Pushes made with GITHUB_TOKEN do not trigger the pages-build-deployment
+        # workflow, so the branch-based Pages site never rebuilds on its own.
+        # Explicitly request a build (requires Pages already set to this branch).
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/builds"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
