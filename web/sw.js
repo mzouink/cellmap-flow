@@ -13,7 +13,7 @@
 // Register from the page with { type: "module" } so these imports work.
 
 import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.webgpu.bundle.min.mjs";
-import { getModel, getHandle } from "./local-store.js";
+import { getModel, getHandle, getBlob } from "./local-store.js";
 import { openArray, readRoi, FileSystemStore } from "./zarr-reader.js";
 import * as P from "./pipeline.js";
 
@@ -29,19 +29,29 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
 // Per-model caches (live for the SW lifetime).
-const sessionCache = new Map(); // onnxUrl -> Promise<InferenceSession>
+const sessionCache = new Map(); // session key -> Promise<InferenceSession>
 const arrayCache = new Map(); // model name -> Promise<{ arr, shape }>
 
-function getSession(onnxUrl) {
-  if (!sessionCache.has(onnxUrl)) {
+// Build (and cache) a session from either a remote URL (meta.onnxUrl) or bytes
+// stored in IndexedDB by the page (meta.onnxKey, set for a local .onnx file).
+function getSession(meta) {
+  const key = meta.onnxKey || meta.onnxUrl;
+  if (!sessionCache.has(key)) {
     sessionCache.set(
-      onnxUrl,
-      ort.InferenceSession.create(onnxUrl, {
-        executionProviders: ["webgpu", "wasm"],
-      })
+      key,
+      (async () => {
+        let src = meta.onnxUrl;
+        if (meta.onnxKey) {
+          src = await getBlob(meta.onnxKey);
+          if (!src) throw new Error(`no stored ONNX bytes for ${meta.onnxKey}`);
+        }
+        return ort.InferenceSession.create(src, {
+          executionProviders: ["webgpu", "wasm"],
+        });
+      })()
     );
   }
-  return sessionCache.get(onnxUrl);
+  return sessionCache.get(key);
 }
 
 async function resolveSource(meta) {
@@ -116,7 +126,7 @@ async function handleChunk(meta, cz, cy, cx) {
 
   P.applyNormalizers(input.data, meta.input_norm);
 
-  const session = await getSession(meta.onnxUrl);
+  const session = await getSession(meta);
   const dims = [1, 1, ...meta.input_size];
   const feeds = { [session.inputNames[0]]: new ort.Tensor("float32", input.data, dims) };
   const results = await session.run(feeds);

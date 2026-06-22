@@ -9,7 +9,7 @@
 // re-granted from a user gesture on the page (see index.html).
 
 const DB_NAME = "cellmap-flow-serverless";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -18,6 +18,7 @@ function openDB() {
       const db = req.result;
       if (!db.objectStoreNames.contains("models")) db.createObjectStore("models");
       if (!db.objectStoreNames.contains("handles")) db.createObjectStore("handles");
+      if (!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs");
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -52,3 +53,9 @@ export const putHandle = (key, handle) =>
   tx("handles", "readwrite", (os) => wrap(os.put(handle, key)));
 export const getHandle = (key) =>
   tx("handles", "readonly", (os) => wrap(os.get(key)));
+
+// Raw bytes (e.g. a local ONNX model) shared from the page to the SW.
+export const putBlob = (key, data) =>
+  tx("blobs", "readwrite", (os) => wrap(os.put(data, key)));
+export const getBlob = (key) =>
+  tx("blobs", "readonly", (os) => wrap(os.get(key)));

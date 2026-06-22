@@ -47,8 +47,13 @@
       <h2>Model</h2>
       <label>Name</label>
       <input id="name" value="mito_test" />
-      <label>ONNX model URL</label>
+      <label>ONNX model</label>
+      <select id="onnxType">
+        <option value="url">remote URL</option>
+        <option value="file">local file</option>
+      </select>
       <input id="onnxUrl" placeholder="https://.../model.onnx" />
+      <input id="onnxFile" type="file" accept=".onnx" style="display:none" />
 
       <div class="row">
         <div><label>Input size (z,y,x vox)</label><input id="inputSize" value="178,178,178" /></div>
@@ -97,7 +102,7 @@
     </main>
 
     <script type="module">
-      import { putModel, putHandle } from "./local-store.js";
+      import { putModel, putHandle, putBlob } from "./local-store.js";
 
       const $ = (id) => document.getElementById(id);
       const log = (m) => { const el = $("log"); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; };
@@ -124,6 +129,11 @@
         const local = e.target.value === "local";
         $("localWrap").style.display = local ? "" : "none";
         $("remoteWrap").style.display = local ? "none" : "";
+      };
+      $("onnxType").onchange = (e) => {
+        const file = e.target.value === "file";
+        $("onnxFile").style.display = file ? "" : "none";
+        $("onnxUrl").style.display = file ? "none" : "";
       };
       $("pickDir").onclick = async () => {
         try {
@@ -169,8 +179,23 @@
             rawSource = `zarr://${url}`;
           }
 
+          // ONNX model: remote URL or a local file stashed in IndexedDB for the SW.
+          let onnxUrl = "";
+          let onnxKey = "";
+          if ($("onnxType").value === "file") {
+            const f = $("onnxFile").files[0];
+            if (!f) return log("[err] choose a local .onnx file first");
+            const bytes = new Uint8Array(await f.arrayBuffer());
+            onnxKey = `onnx:${name}`;
+            await putBlob(onnxKey, bytes);
+            log(`[model] stored local ONNX (${(bytes.length / 1e6).toFixed(1)} MB)`);
+          } else {
+            onnxUrl = $("onnxUrl").value.trim();
+          }
+
           const meta = {
-            onnxUrl: $("onnxUrl").value.trim(),
+            onnxUrl,
+            onnxKey,
             input_size: nums($("inputSize").value),
             output_size: nums($("outputSize").value),
             input_voxel_size: nums($("inputVox").value),
