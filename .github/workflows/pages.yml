@@ -1,0 +1,35 @@
+name: Deploy serverless web to GitHub Pages
+
+# Publishes the static browser-side app in web/ (service worker + ONNX
+# inference). Runs on pushes to the serverless branch.
+on:
+  push:
+    branches: [serverless]
+    paths: ["web/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # pulls vendor/neuroglancer if added as a submodule
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4

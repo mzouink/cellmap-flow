@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CellMap Flow — Serverless</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font: 14px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+        background: #0d1117; color: #c9d1d9; display: flex; height: 100vh;
+      }
+      aside {
+        width: 380px; flex: none; padding: 18px; overflow-y: auto;
+        border-right: 1px solid #21262d; background: #0d1117;
+      }
+      main { flex: 1; display: flex; flex-direction: column; }
+      iframe { flex: 1; border: 0; width: 100%; background: #000; }
+      h1 { font-size: 16px; margin: 0 0 4px; color: #58a6ff; }
+      h2 { font-size: 13px; margin: 20px 0 8px; color: #8b949e; text-transform: uppercase; letter-spacing: .05em; }
+      label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
+      input, textarea, select {
+        width: 100%; padding: 6px 8px; background: #161b22; color: #c9d1d9;
+        border: 1px solid #30363d; border-radius: 6px; font: inherit;
+      }
+      .row { display: flex; gap: 8px; }
+      .row > * { flex: 1; }
+      button {
+        margin-top: 12px; padding: 8px 12px; background: #238636; color: #fff;
+        border: 0; border-radius: 6px; cursor: pointer; font: inherit; width: 100%;
+      }
+      button.secondary { background: #21262d; color: #c9d1d9; }
+      #log {
+        margin-top: 14px; padding: 8px; background: #161b22; border: 1px solid #21262d;
+        border-radius: 6px; font-size: 11px; max-height: 180px; overflow-y: auto; white-space: pre-wrap;
+      }
+      .hint { font-size: 11px; color: #6e7681; margin-top: 2px; }
+      code { color: #79c0ff; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>CellMap Flow — Serverless</h1>
+      <div class="hint">Browser-side ONNX inference. Chunks are computed by a service worker; no backend.</div>
+
+      <h2>Model</h2>
+      <label>Name</label>
+      <input id="name" value="mito_test" />
+      <label>ONNX model URL</label>
+      <input id="onnxUrl" placeholder="https://.../model.onnx" />
+
+      <div class="row">
+        <div><label>Input size (z,y,x vox)</label><input id="inputSize" value="178,178,178" /></div>
+        <div><label>Output size (z,y,x vox)</label><input id="outputSize" value="56,56,56" /></div>
+      </div>
+      <div class="row">
+        <div><label>Input voxel (z,y,x nm)</label><input id="inputVox" value="16,16,16" /></div>
+        <div><label>Output voxel (z,y,x nm)</label><input id="outputVox" value="16,16,16" /></div>
+      </div>
+      <div class="row">
+        <div><label>Channels</label><input id="channels" value="13" /></div>
+        <div><label>Has channel axis</label>
+          <select id="hasChannel"><option value="true">true</option><option value="false">false</option></select>
+        </div>
+      </div>
+
+      <h2>Input data</h2>
+      <div class="row">
+        <div><label>Source</label>
+          <select id="sourceType"><option value="remote">remote (http/s3/gs)</option><option value="local">local directory</option></select>
+        </div>
+      </div>
+      <div id="remoteWrap">
+        <label>Zarr URL (CORS-enabled)</label>
+        <input id="sourceUrl" placeholder="https://bucket/dataset.zarr/s0" />
+      </div>
+      <div id="localWrap" style="display:none">
+        <button class="secondary" id="pickDir" type="button">Pick local Zarr directory…</button>
+        <div class="hint" id="dirStatus">No directory selected. (Chromium only.)</div>
+        <label>Array sub-path within picked dir (optional)</label>
+        <input id="localPath" placeholder="e.g. s0" />
+      </div>
+
+      <h2>Normalizers / postprocessors</h2>
+      <label>input_norm (JSON list)</label>
+      <textarea id="norms" rows="3">[{"name":"MinMaxNormalizer","min_value":0,"max_value":255}]</textarea>
+      <label>postprocess (JSON list)</label>
+      <textarea id="post" rows="3">[]</textarea>
+      <div class="hint">v1 supports MinMax/Lambda/ZScore norms and Default/Threshold/ChannelSelection/Lambda post.</div>
+
+      <button id="launch">Register &amp; open in Neuroglancer</button>
+      <div id="log"></div>
+    </aside>
+    <main>
+      <iframe id="ng" title="Neuroglancer"></iframe>
+    </main>
+
+    <script type="module">
+      import { putModel, putHandle } from "./local-store.js";
+
+      const $ = (id) => document.getElementById(id);
+      const log = (m) => { const el = $("log"); el.textContent += m + "\n"; el.scrollTop = el.scrollHeight; };
+      const ARGS_KEY = "__CFLOW_ARGS__";
+      const nums = (s) => s.split(",").map((x) => Number(x.trim()));
+
+      // Base path under which sw.js is scoped (directory of this page).
+      const BASE = location.pathname.replace(/[^/]*$/, "").replace(/\/$/, "");
+      const NG_BASE = `${BASE}/vendor/neuroglancer/`; // bundled, same-origin (see README)
+
+      // ---- service worker -------------------------------------------------
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .register(`${BASE}/sw.js`, { type: "module" })
+          .then((r) => log(`[sw] registered (scope ${r.scope})`))
+          .catch((e) => log(`[sw] registration failed: ${e}`));
+      } else {
+        log("[sw] service workers unavailable in this browser");
+      }
+
+      // ---- source picker --------------------------------------------------
+      let pickedHandle = null;
+      $("sourceType").onchange = (e) => {
+        const local = e.target.value === "local";
+        $("localWrap").style.display = local ? "" : "none";
+        $("remoteWrap").style.display = local ? "none" : "";
+      };
+      $("pickDir").onclick = async () => {
+        try {
+          pickedHandle = await window.showDirectoryPicker();
+          const perm = await pickedHandle.requestPermission({ mode: "read" });
+          $("dirStatus").textContent =
+            perm === "granted" ? `Selected: ${pickedHandle.name} (read granted)` : `Permission: ${perm}`;
+        } catch (e) {
+          log(`[picker] ${e}`);
+        }
+      };
+
+      // ---- args encoding (mirrors web_utils.encode_to_str) ----------------
+      const encodeArgs = (input_norm, postprocess) => {
+        const json = JSON.stringify({ input_norm, postprocess });
+        return btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      };
+
+      const isSegmentation = (post) =>
+        post.some((p) => ["ThresholdPostprocessor", "LabelPostprocessor", "MortonSegmentationRelabeling"].includes(p.name));
+
+      // ---- launch ---------------------------------------------------------
+      $("launch").onclick = async () => {
+        try {
+          const name = $("name").value.trim();
+          const input_norm = JSON.parse($("norms").value || "[]");
+          const postprocess = JSON.parse($("post").value || "[]");
+          const sourceType = $("sourceType").value;
+
+          let source;
+          let rawSource; // for the raw display layer
+          if (sourceType === "local") {
+            if (!pickedHandle) return log("[err] pick a local directory first");
+            const handleKey = `src:${name}`;
+            await putHandle(handleKey, pickedHandle);
+            const path = $("localPath").value.trim();
+            source = { type: "local", handleKey, path };
+            // SW serves the raw dir under /local/<handleKey>/<path>
+            rawSource = `zarr://${location.origin}${BASE}/local/${handleKey}/${path}`;
+          } else {
+            const url = $("sourceUrl").value.trim();
+            source = { type: "remote", url };
+            rawSource = `zarr://${url}`;
+          }
+
+          const meta = {
+            onnxUrl: $("onnxUrl").value.trim(),
+            input_size: nums($("inputSize").value),
+            output_size: nums($("outputSize").value),
+            input_voxel_size: nums($("inputVox").value),
+            output_voxel_size: nums($("outputVox").value),
+            output_channels: Number($("channels").value),
+            has_channel: $("hasChannel").value === "true",
+            source,
+            input_norm,
+            postprocess,
+          };
+          await putModel(name, meta);
+          log(`[model] registered "${name}"`);
+
+          // Build Neuroglancer state.
+          const args = encodeArgs(input_norm, postprocess);
+          const segment = `${encodeURIComponent(name)}${ARGS_KEY}${args}${ARGS_KEY}`;
+          const modelSource = `zarr://${location.origin}${BASE}/cf/${segment}`;
+
+          const state = {
+            layers: [
+              { type: "image", name: "raw", source: rawSource },
+              {
+                type: isSegmentation(postprocess) ? "segmentation" : "image",
+                name,
+                source: modelSource,
+                ...(isSegmentation(postprocess)
+                  ? {}
+                  : {
+                      shader:
+                        "#uicontrol invlerp normalized(range=[0,1], window=[0,1]);\n" +
+                        '#uicontrol vec3 color color(default="green");\n' +
+                        "void main(){emitRGB(color*normalized());}",
+                    }),
+              },
+            ],
+            layout: "4panel",
+          };
+          $("ng").src = `${NG_BASE}#!${encodeURIComponent(JSON.stringify(state))}`;
+          log("[ng] viewer state loaded");
+        } catch (e) {
+          log(`[err] ${e}`);
+        }
+      };
+    </script>
+  </body>
+</html>
