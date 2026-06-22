@@ -1,7 +1,8 @@
-name: Deploy serverless web to GitHub Pages
+name: Deploy serverless web to gh-pages-serveless
 
 # Publishes the static browser-side app in web/ (service worker + ONNX
-# inference). Runs on pushes to the serverless branch.
+# inference) to the `gh-pages-serveless` branch. Configure GitHub Pages with
+# Source = "Deploy from a branch", Branch = gh-pages-serveless, folder = / (root).
 on:
   push:
     branches: [serverless]
@@ -9,29 +10,29 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: gh-pages-serveless
   cancel-in-progress: true
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive # pulls vendor/neuroglancer if added as a submodule
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true # auto-enable Pages (source: GitHub Actions) on first run
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: web
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish web/ to gh-pages-serveless
+        run: |
+          touch web/.nojekyll   # serve files verbatim (don't run Jekyll)
+          cd web
+          git init -q -b gh-pages-serveless
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Deploy web/ from ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            gh-pages-serveless:gh-pages-serveless
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
