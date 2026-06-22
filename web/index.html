@@ -60,6 +60,12 @@
       </select>
       <input id="onnxUrl" placeholder="https://.../model.onnx" />
       <input id="onnxFile" type="file" accept=".onnx" style="display:none" />
+      <label>Compute backend</label>
+      <select id="backend">
+        <option value="auto">auto (WebGPU, fall back to CPU)</option>
+        <option value="webgpu">WebGPU only (GPU)</option>
+        <option value="wasm">WASM only (CPU)</option>
+      </select>
 
       <div class="row">
         <div><label>Input size (z,y,x vox)</label><input id="inputSize" value="178,178,178" /></div>
@@ -295,6 +301,7 @@
             output_voxel_size: nums($("outputVox").value),
             output_channels: Number($("channels").value),
             has_channel: $("hasChannel").value === "true",
+            backend: $("backend").value,
             source,
             input_norm,
             postprocess,
