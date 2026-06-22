@@ -14,9 +14,12 @@ op that severs auto-pruners' channel dependency — the skip branch of each deco
 concat never gets coupled to its consumer, producing inconsistent models. The
 funlib structure is regular enough to prune deterministically instead.
 
-No LoRA, no retraining — accuracy WILL drop; this is for a browser-runnable demo.
-Only supports constant_upsample=True (nn.Upsample, no params), which StandardUnet
-hardcodes.
+No LoRA, no retraining. WARNING: in practice this model's output COLLAPSES to a
+near-constant field without finetuning (verified: output std ~0.006 vs ~0.21 for
+the full model) — structured channel pruning disrupts learned features and the
+error compounds across layers. A pruned model is only useful after a short
+finetune to recover function. Only supports constant_upsample=True (nn.Upsample,
+no params), which StandardUnet hardcodes.
 
 Usage:
     python scripts/prune_onnx.py -o web/models/mito_small.onnx --ratio 0.85
