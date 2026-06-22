@@ -12,7 +12,11 @@ import { FileSystemStore } from "./local-store.js";
 // Open a Zarr array from a source descriptor:
 //   { type: "remote", url }            -> FetchStore
 //   { type: "local",  dirHandle, path } -> FileSystemStore (path = subdir of root)
-export async function openArray(source) {
+// The URL may point at the array directly, OR at an OME multiscale GROUP (the
+// common case — voxel-size/axes metadata lives in the parent group, not the
+// per-scale array). For a group we pick the scale whose voxel size best matches
+// meta.input_voxel_size, mirroring cellmap_flow's ImageDataInterface.
+export async function openArray(source, meta) {
   let store;
   if (source.type === "local") {
     let dir = source.dirHandle;
@@ -21,9 +25,37 @@ export async function openArray(source) {
     }
     store = new FileSystemStore(dir);
   } else {
-    store = new zarr.FetchStore(source.url);
+    store = new zarr.FetchStore(source.url.replace(/\/$/, ""));
   }
-  return zarr.open(store, { kind: "array" });
+
+  // Try as a plain array first (URL points straight at e.g. .../s1).
+  try {
+    return await zarr.open(store, { kind: "array" });
+  } catch (_) {
+    // Fall through: maybe it's a multiscale group.
+  }
+
+  const grp = await zarr.open(store, { kind: "group" });
+  const ms = grp.attrs?.multiscales?.[0];
+  if (!ms || !ms.datasets?.length) {
+    throw new Error("source is neither a zarr array nor an OME multiscale group");
+  }
+  const want = meta?.input_voxel_size || [];
+  let best = ms.datasets[0];
+  let bestErr = Infinity;
+  for (const d of ms.datasets) {
+    const t = (d.coordinateTransformations || []).find((c) => c.type === "scale");
+    const scale = (t?.scale || []).slice(-3); // last 3 dims = spatial (z,y,x)
+    const err =
+      scale.length === 3 && want.length === 3
+        ? scale.reduce((a, v, i) => a + Math.abs(v - want[i]), 0)
+        : Infinity;
+    if (err < bestErr) {
+      bestErr = err;
+      best = d;
+    }
+  }
+  return zarr.open(zarr.root(store).resolve(best.path), { kind: "array" });
 }
 
 // Read the input ROI (nm) into a Float32Array of shape meta.input_size ([z,y,x]),

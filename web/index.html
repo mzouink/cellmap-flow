@@ -78,7 +78,8 @@
       </div>
       <div id="remoteWrap">
         <label>Zarr URL (CORS-enabled)</label>
-        <input id="sourceUrl" placeholder="https://bucket/dataset.zarr/s0" />
+        <input id="sourceUrl" placeholder="https://host/dataset.zarr/.../fibsem-uint8" />
+        <div class="hint">Point at the multiscale <b>group</b> (parent of s0/s1/…); the scale matching the input voxel size is chosen automatically. A direct array URL also works.</div>
       </div>
       <div id="localWrap" style="display:none">
         <button class="secondary" id="pickDir" type="button">Pick local Zarr directory…</button>

@@ -65,7 +65,7 @@ async function getInputArray(name, meta) {
       name,
       (async () => {
         const source = await resolveSource(meta);
-        const arr = await openArray(source);
+        const arr = await openArray(source, meta);
         return { arr, shape: arr.shape };
       })()
     );
