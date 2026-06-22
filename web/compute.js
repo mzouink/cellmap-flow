@@ -29,6 +29,7 @@ console.log("[compute] WebGPU available:", typeof navigator !== "undefined" && !
 // running them all at once exhausts GPU/CPU memory. Gate to a small number.
 const MAX_CONCURRENT = 2;
 let inflight = 0;
+let announcedFirst = false;
 const waiters = [];
 function acquire() {
   if (inflight < MAX_CONCURRENT) {
@@ -74,7 +75,7 @@ function getSession(meta) {
             const session = await ort.InferenceSession.create(src, {
               executionProviders: ["webgpu"],
             });
-            status("session ready · WebGPU (GPU)");
+            self.postMessage({ type: "status", text: "session ready · WebGPU (GPU)", provider: "webgpu" });
             return { session, provider: "webgpu" };
           } catch (e) {
             console.warn("[compute] WebGPU init failed, falling back to WASM (CPU):", e.message);
@@ -84,7 +85,7 @@ function getSession(meta) {
           status("navigator.gpu unavailable — using WASM (CPU)");
         }
         const session = await ort.InferenceSession.create(src, { executionProviders: ["wasm"] });
-        status("session ready · WASM (CPU)");
+        self.postMessage({ type: "status", text: "session ready · WASM (CPU)", provider: "wasm" });
         return { session, provider: "wasm" };
       })()
     );
@@ -143,6 +144,13 @@ async function handleChunk(meta, cz, cy, cx) {
   const dims = [1, 1, ...meta.input_size];
 
   // Bound concurrent forward passes (see MAX_CONCURRENT above).
+  if (!announcedFirst) {
+    announcedFirst = true;
+    self.postMessage({
+      type: "status",
+      text: "first inference — compiling WebGPU kernels (can take 10–60 s)…",
+    });
+  }
   await acquire();
   let out;
   const t0 = performance.now();

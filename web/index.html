@@ -173,6 +173,10 @@
         }
         if (d.type === "status") {
           fmt("stStatus", d.text);
+          if (d.provider) {
+            fmt("stBackend", d.provider === "webgpu" ? "WebGPU (GPU)" : "WASM (CPU)");
+            $("stBackend").style.color = d.provider === "webgpu" ? "#3fb950" : "#d29922";
+          }
           log(`[compute] ${d.text}`);
           return;
         }
