@@ -51,6 +51,11 @@ def main():
     ap.add_argument("--steps", type=int, default=2000)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--region", type=int, nargs=3, default=[320, 320, 320], help="EM region to preload")
+    # Input normalization — MUST match what you set in the browser form and what
+    # the model was trained on. Default: clip [min,max] -> [0,1] -> 2x-1 -> [-1,1].
+    ap.add_argument("--clip-min", type=float, default=0.0)
+    ap.add_argument("--clip-max", type=float, default=255.0)
+    ap.add_argument("--no-pm1", action="store_true", help="skip 2*x-1 (use [0,1] instead of [-1,1])")
     ap.add_argument("--opset", type=int, default=18)
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
@@ -79,8 +84,13 @@ def main():
     arr = ts.open({"driver": "zarr", "kvstore": args.data.rstrip("/") + "/", "open": True}).result()
     rz, ry, rx = [min(args.region[i], arr.shape[i]) for i in range(3)]
     o = [(arr.shape[i] - [rz, ry, rx][i]) // 2 for i in range(3)]
-    region = arr[o[0]:o[0] + rz, o[1]:o[1] + ry, o[2]:o[2] + rx].read().result().astype(np.float32) / 255.0
-    print(f"preloaded EM region {region.shape}, mean {region.mean():.3f}")
+    raw = arr[o[0]:o[0] + rz, o[1]:o[1] + ry, o[2]:o[2] + rx].read().result().astype(np.float32)
+    region = np.clip(raw, args.clip_min, args.clip_max)
+    region = (region - args.clip_min) / (args.clip_max - args.clip_min)  # -> [0,1]
+    if not args.no_pm1:
+        region = 2.0 * region - 1.0  # -> [-1,1]
+    print(f"preloaded EM region {region.shape}, normalized mean {region.mean():.3f} "
+          f"(range [{region.min():.2f}, {region.max():.2f}])")
 
     def sample():
         sz = [np.random.randint(0, region.shape[i] - [z, y, x][i] + 1) for i in range(3)]

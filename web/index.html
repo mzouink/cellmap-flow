@@ -90,7 +90,7 @@
 
       <h2>Normalizers / postprocessors</h2>
       <label>input_norm (JSON list)</label>
-      <textarea id="norms" rows="3">[{"name":"MinMaxNormalizer","min_value":0,"max_value":255}]</textarea>
+      <textarea id="norms" rows="3">[{"name":"MinMaxNormalizer","min_value":0,"max_value":255},{"name":"LambdaNormalizer","expression":"2*x-1"}]</textarea>
       <label>postprocess (JSON list)</label>
       <textarea id="post" rows="3">[]</textarea>
       <div class="hint">v1 supports MinMax/Lambda/ZScore norms and Default/Threshold/ChannelSelection/Lambda post.</div>
