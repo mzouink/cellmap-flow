@@ -53,6 +53,9 @@ const arrayCache = new Map(); // model name -> Promise<{ arr, shape }>
 
 // Build (and cache) a session from a remote URL (meta.onnxUrl) or bytes stored
 // in IndexedDB by the page (meta.onnxKey, set for a local .onnx file).
+// Returns { session, provider } where provider is "webgpu" (GPU) or "wasm" (CPU).
+// The provider is fixed per session, so we detect it once: try WebGPU alone, and
+// fall back to WASM if WebGPU is unavailable or fails to initialize.
 function getSession(meta) {
   const key = meta.onnxKey || meta.onnxUrl;
   if (!sessionCache.has(key)) {
@@ -64,9 +67,22 @@ function getSession(meta) {
           src = await getBlob(meta.onnxKey);
           if (!src) throw new Error(`no stored ONNX bytes for ${meta.onnxKey}`);
         }
-        return ort.InferenceSession.create(src, {
-          executionProviders: ["webgpu", "wasm"],
-        });
+        if (navigator.gpu) {
+          try {
+            const session = await ort.InferenceSession.create(src, {
+              executionProviders: ["webgpu"],
+            });
+            console.log("[compute] session initialized on WebGPU (GPU)");
+            return { session, provider: "webgpu" };
+          } catch (e) {
+            console.warn("[compute] WebGPU init failed, falling back to WASM (CPU):", e.message);
+          }
+        } else {
+          console.warn("[compute] navigator.gpu unavailable — using WASM (CPU)");
+        }
+        const session = await ort.InferenceSession.create(src, { executionProviders: ["wasm"] });
+        console.log("[compute] session initialized on WASM (CPU)");
+        return { session, provider: "wasm" };
       })()
     );
   }
@@ -120,12 +136,13 @@ async function handleChunk(meta, cz, cy, cx) {
 
   P.applyNormalizers(input.data, meta.input_norm);
 
-  const session = await getSession(meta);
+  const { session, provider } = await getSession(meta);
   const dims = [1, 1, ...meta.input_size];
 
   // Bound concurrent forward passes (see MAX_CONCURRENT above).
   await acquire();
   let out;
+  const t0 = performance.now();
   try {
     const feeds = { [session.inputNames[0]]: new ort.Tensor("float32", input.data, dims) };
     const results = await session.run(feeds);
@@ -133,6 +150,11 @@ async function handleChunk(meta, cz, cy, cx) {
   } finally {
     release();
   }
+  const ms = performance.now() - t0;
+  console.log(
+    `[compute] block ${cz}.${cy}.${cx} computed on ${provider === "webgpu" ? "GPU" : "CPU"} ` +
+      `(${provider}) in ${ms.toFixed(0)} ms`
+  );
   const outDims = Array.from(out.dims);
 
   let nd;
