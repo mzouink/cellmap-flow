@@ -28,6 +28,8 @@ jobs:
         with:
           submodules: recursive # pulls vendor/neuroglancer if added as a submodule
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true # auto-enable Pages (source: GitHub Actions) on first run
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web
