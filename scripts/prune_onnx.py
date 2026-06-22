@@ -138,7 +138,8 @@ def main():
         out = model(example)
     print(f"output shape: {tuple(out.shape)} (expected (1, 1, 56, 56, 56))")
 
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with torch.no_grad():
         torch.onnx.export(
             model.cpu(),
@@ -149,8 +150,18 @@ def main():
             output_names=["output"],
             do_constant_folding=True,
         )
-    sz = Path(args.output).stat().st_size / 1e6
-    print(f"wrote {args.output} ({sz:.1f} MB)")
+
+    # Some torch versions emit weights as an external .data sidecar, which
+    # onnxruntime-web cannot load. Re-save as one self-contained file.
+    import onnx
+
+    onnx.save_model(onnx.load(args.output), args.output, save_as_external_data=False)
+    sidecar = Path(args.output + ".data")
+    if sidecar.exists():
+        sidecar.unlink()
+
+    sz = out_path.stat().st_size / 1e6
+    print(f"wrote {args.output} ({sz:.1f} MB, single file)")
     if sz > 100:
         print("⚠ still >100 MB — raise --ratio for the browser.")
 
