@@ -16,9 +16,13 @@
 // operator matrix lists conv3d as unsupported). Pinned to a specific dev build.
 const ORT_VER = "1.27.0-dev.20260506-673c3320fc";
 import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0-dev.20260506-673c3320fc/dist/ort.webgpu.bundle.min.mjs";
-import { getModel, getHandle, getBlob } from "./local-store.js";
-import { openArray, readRoi } from "./zarr-reader.js";
-import * as P from "./pipeline.js";
+// Propagate this module's cache-busting query (?v=…) to the relative imports so
+// the whole worker graph refreshes together on reload (GitHub Pages caches JS
+// for 10 min otherwise). CDN imports above are version-pinned already.
+const _v = new URL(import.meta.url).search;
+const { getModel, getHandle, getBlob } = await import("./local-store.js" + _v);
+const { openArray, readRoi } = await import("./zarr-reader.js" + _v);
+const P = await import("./pipeline.js" + _v);
 
 const ORT_DIST = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VER}/dist/`;
 ort.env.wasm.wasmPaths = ORT_DIST;
@@ -61,7 +65,9 @@ const arrayCache = new Map(); // model name -> Promise<{ arr, shape }>
 // The provider is fixed per session, so we detect it once: try WebGPU alone, and
 // fall back to WASM if WebGPU is unavailable or fails to initialize.
 function getSession(meta) {
-  const key = meta.onnxKey || meta.onnxUrl;
+  // Include backend so switching auto/webgpu/wasm creates a fresh session
+  // instead of reusing the cached one.
+  const key = `${meta.onnxKey || meta.onnxUrl}::${meta.backend || "auto"}`;
   if (!sessionCache.has(key)) {
     sessionCache.set(
       key,

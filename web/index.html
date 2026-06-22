@@ -138,7 +138,10 @@
       const NG_BASE = `${BASE}/vendor/neuroglancer/`; // bundled, same-origin (see README)
 
       // ---- compute worker (runs zarr read + ONNX; SW can't, no dynamic import)
-      const compute = new Worker(`${BASE}/compute-worker.js`, { type: "module" });
+      // Cache-bust the worker (and its module graph) so a normal reload picks up
+      // new code — GitHub Pages caches JS for 10 min otherwise.
+      const CACHE_BUST = `?v=${Date.now()}`;
+      const compute = new Worker(`${BASE}/compute-worker.js${CACHE_BUST}`, { type: "module" });
       const computePending = new Map();
       let computeSeq = 0;
 
@@ -199,8 +202,8 @@
       // ---- service worker -------------------------------------------------
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker
-          .register(`${BASE}/sw.js`, { type: "module" })
-          .then((r) => log(`[sw] registered (scope ${r.scope})`))
+          .register(`${BASE}/sw.js`, { type: "module", updateViaCache: "none" })
+          .then((r) => { r.update(); log(`[sw] registered (scope ${r.scope})`); })
           .catch((e) => log(`[sw] registration failed: ${e}`));
 
         // Bridge: SW asks us to compute a /cf/ response; forward to the worker.

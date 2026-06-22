@@ -7,7 +7,8 @@
 //
 // zarrita is loaded from a CDN ESM build; pin the version in web/README.md.
 import * as zarr from "https://cdn.jsdelivr.net/npm/zarrita@0.4/+esm";
-import { FileSystemStore } from "./local-store.js";
+// Carry the cache-busting query through to the relative import (see compute.js).
+const { FileSystemStore } = await import("./local-store.js" + new URL(import.meta.url).search);
 
 // Open a Zarr array from a source descriptor:
 //   { type: "remote", url }            -> FetchStore

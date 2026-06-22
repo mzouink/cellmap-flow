@@ -4,7 +4,9 @@
 // so the page spawns this worker and bridges messages between the SW and here.
 // Each message: { id, segment, tail }. Reply: { id, ok, status, contentType, body }
 // plus { provider, ms } for chunk results (used by the page's stats HUD).
-import { handleCf } from "./compute.js";
+// Load the pipeline with this worker's cache-busting query (?v=…) so a normal
+// reload picks up new worker code (no SW unregister / hard-reload needed).
+const { handleCf } = await import("./compute.js" + self.location.search);
 
 // Report device info once so the page can show which GPU/CPU is in use.
 (async () => {
