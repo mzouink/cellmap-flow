@@ -201,18 +201,6 @@
         log(`[worker] ${e.message || e}`);
       };
 
-      // Once the SW controls the page it injects COOP/COEP; reload once so the
-      // document actually becomes crossOriginIsolated (enables WASM threads).
-      if (
-        !self.crossOriginIsolated &&
-        navigator.serviceWorker &&
-        navigator.serviceWorker.controller &&
-        !sessionStorage.getItem("coiReloaded")
-      ) {
-        sessionStorage.setItem("coiReloaded", "1");
-        location.reload();
-      }
-
       // ---- service worker -------------------------------------------------
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker
