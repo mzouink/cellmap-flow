@@ -38,13 +38,25 @@ console.log("[compute] WebGPU available:", typeof navigator !== "undefined" && !
 
 // Limit concurrent inferences. Neuroglancer may request many chunks at once
 // (its "Concurrent chunk requests"), but each is a full volumetric forward pass;
-// running them all at once exhausts GPU/CPU memory. Gate to a small number.
-const MAX_CONCURRENT = 2;
+// running them all at once exhausts GPU/CPU memory. Configurable per model
+// (meta.max_concurrent, the page's "Max concurrent inferences" field); default 1:
+// an onnxruntime-web InferenceSession is not re-entrant, and two overlapping
+// session.run() calls on the WebGPU EP never resolve (0 blocks done, page hangs).
+const DEFAULT_MAX_CONCURRENT = 1;
+let maxConcurrent = DEFAULT_MAX_CONCURRENT;
 let inflight = 0;
 let announcedFirst = false;
+let blocksDone = 0;
 const waiters = [];
+function setMaxConcurrent(n) {
+  maxConcurrent = Number.isInteger(n) && n >= 1 ? n : DEFAULT_MAX_CONCURRENT;
+  while (inflight < maxConcurrent && waiters.length) {
+    inflight++;
+    waiters.shift()();
+  }
+}
 function acquire() {
-  if (inflight < MAX_CONCURRENT) {
+  if (inflight < maxConcurrent) {
     inflight++;
     return Promise.resolve();
   }
@@ -52,10 +64,9 @@ function acquire() {
 }
 function release() {
   inflight--;
-  const next = waiters.shift();
-  if (next) {
+  if (inflight < maxConcurrent && waiters.length) {
     inflight++;
-    next();
+    waiters.shift()();
   }
 }
 
@@ -165,12 +176,13 @@ async function handleChunk(meta, cz, cy, cx) {
   const { session, provider } = await getSession(meta);
   const dims = [1, 1, ...meta.input_size];
 
-  // Bound concurrent forward passes (see MAX_CONCURRENT above).
+  // Bound concurrent forward passes (see DEFAULT_MAX_CONCURRENT above).
+  setMaxConcurrent(Number(meta.max_concurrent));
   if (!announcedFirst) {
     announcedFirst = true;
     self.postMessage({
       type: "status",
-      text: "first inference — compiling WebGPU kernels (can take 10–60 s)…",
+      text: "first inference — compiling GPU kernels (first block can take a few seconds)…",
     });
   }
   await acquire();
@@ -184,6 +196,10 @@ async function handleChunk(meta, cz, cy, cx) {
     release();
   }
   const ms = performance.now() - t0;
+  blocksDone++;
+  if (blocksDone === 1 || blocksDone % 10 === 0) {
+    self.postMessage({ type: "status", text: `running · ${blocksDone} block(s) done · last ${Math.round(ms)} ms` });
+  }
   const outDims = Array.from(out.dims);
 
   let nd;
